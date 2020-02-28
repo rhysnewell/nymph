@@ -9,7 +9,11 @@ repository = "https://github.com/rhysnewell/nymph"
 documentation = "https://github.com/rhysnewell/nymph"
 readme = "README.md"
 exclude = [
-  "tests/*"
+  "tests/*",
+  "target/",
+  ".idea/",
+  ".gitignore",
+  ".travis.yml"
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
