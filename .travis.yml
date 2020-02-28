@@ -1,9 +1,5 @@
----
 os:
   - linux
-
-env:
-  - ARCH=x86_64
 
 sudo: required
 language: rust
@@ -14,16 +10,10 @@ rust:
 addons:
   apt:
     packages:
-      - build-essential
       - gfortran
-      - libssl-dev
   homebrew:
     packages:
       - gcc@9
-
-install:
-  # Modified from https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/use-conda-with-travis-ci.html
-  - sudo apt-get update
 
 cache: cargo
 
@@ -35,8 +25,7 @@ before_cache: |
 script:
   - if [ "$TRAVIS_OS_NAME" = 'osx' ]; then export CC=gcc-9 FC=gfortran-9 LIBRARY_PATH=/usr/local/opt/gcc/lib/gcc/9; fi
   - cargo clean
-  - cargo build
-  - cargo test
+  - cargo test -vv
 
 after_success: |
   if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
