@@ -11,8 +11,8 @@ use std::process;
 use std::f64;
 
 
-//use crate::matrix_handling;
 #[derive(Debug, Clone, Copy)]
+/// The multiplicative update method to be used
 pub enum Update {
     Euclidean,
     Divergence,
@@ -234,6 +234,9 @@ impl RunFactorization for Factorization {
         }
     }
 
+    ///        Estimate the best rank for NMF.
+    ///
+    ///        Return fitted factorization model.
     fn estimate_rank(&mut self) {
         match self {
             Factorization::NMF {
@@ -255,11 +258,9 @@ impl RunFactorization for Factorization {
                 ref mut cons,
                 ref mut old_cons,
             } => {
-                ///        Compute matrix factorization.
-                ///
-                ///        Return fitted factorization model.
 
-                /// Defined all variables first so they can be used inside closures
+
+                // Defined all variables first so they can be used inside closures
                 let mut best_rank = 0;
                 let mut prev = std::f64::MAX;
 
@@ -295,7 +296,9 @@ impl RunFactorization for Factorization {
             }
         }
     }
-
+    ///        Compute matrix factorization.
+    ///
+    ///        Return fitted factorization model.
     fn factorize(v: &Array2<f64>,
                  seed: Seed,
                  final_obj: f64,
@@ -372,6 +375,7 @@ impl RunFactorization for Factorization {
         return (w_ret, h_ret)
     }
 
+    /// Adjusts entries below f64::EPSILON to prevent numerical underflow
     fn adjustment(input: &mut Array2<f64>) -> Array2<f64> {
         input.par_mapv_inplace(|x| {
             if x > f64::EPSILON {
@@ -414,12 +418,13 @@ impl RunFactorization for Factorization {
                  h: Array2<f64>,
                  update: &Update) -> (Array2<f64>, Array2<f64>){
         match update {
+            /// Update basis and mixture matrix based on
+            /// Euclidean distance multiplicative update rules.
+            /// Build individual parts of functions
+            /// H is updated first, and then used to update W
+            /// Function 1
             Update::Euclidean => {
-                /// Update basis and mixture matrix based on
-                /// Euclidean distance multiplicative update rules.
-                /// Build individual parts of functions
-                /// H is updated first, and then used to update W
-                /// Function 1
+
                 let w_t = w.t();
                 let mut lower_1 = w_t.dot(v);
                 let lower_2 = w_t.dot(&w.dot(&h));
@@ -459,9 +464,10 @@ impl RunFactorization for Factorization {
 
                 return (w, h)
             },
+            /// Update basis and mixture matrix based on
+            /// Divergence distance multiplicative update rules.
             Update::Divergence => {
-                /// Update basis and mixture matrix based on
-                /// Divergence distance multiplicative update rules.
+
                 let h1: Array2<f64> = Array::from_elem(
                     (1, v.shape()[1]), w.sum_axis(Axis(0))[0]);
 
@@ -495,8 +501,8 @@ impl RunFactorization for Factorization {
                         old_cons: &Array2<f64>,
                         objective: &Objective) -> (f64, Option<Array2<f64>>) {
         match objective {
+            /// Compute squared Frobenius norm of a target matrix and its NMF estimate.
             Objective::Fro => {
-                /// Compute squared Frobenius norm of a target matrix and its NMF estimate.
                 let w_dot_h = w.dot(h);
                 let mut r = Array2::zeros(
                     (v.shape()[0], v.shape()[1]));
@@ -509,8 +515,8 @@ impl RunFactorization for Factorization {
 
                 return ((r.clone() * r).sum(), None)
             },
+            /// Compute divergence of target matrix from its NMF estimate.
             Objective::Div => {
-                /// Compute divergence of target matrix from its NMF estimate.
                 let va = w.dot(h);
                 let mut inner_elop = v.clone() / va.clone();
                 inner_elop.par_mapv_inplace(|x|{x.ln()});
