@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::prelude::*;
 use ordered_float::NotNan;
@@ -7,8 +6,7 @@ use approx;
 use ndarray::{Array, Array2, Axis, Zip, stack};
 use ndarray::prelude::*;
 use rayon::prelude::*;
-use crate::factorization::{seeding::Seed};
-use factorization::seeding::SeedFunctions;
+use factorization::{seeding::*};
 use std::process;
 use std::f64;
 

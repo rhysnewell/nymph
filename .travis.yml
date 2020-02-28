@@ -19,9 +19,6 @@ addons:
       - libopenblas-dev
       - libssl-dev
       - gfortran
-  homebrew:
-    packages:
-      - gcc@9
 
 cache: cargo
 

@@ -21,7 +21,12 @@ exclude = [
 
 [dependencies]
 ordered-float = "1"
-ndarray = { version = "0.13.0" }
+ndarray = { version = "0.13.0", features = ["rayon"] }
 ndarray-linalg = { version = "0.12" }
+openblas-src = "0.7"
 rayon = "1.2.*"
+approx = "0.3"
+rand = "0.6.*"
+log = "0.4.*"
+
 
