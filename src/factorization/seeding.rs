@@ -362,4 +362,21 @@ mod tests {
                                           vec![0., 23., 0., 0., 1., 2., 0.]).unwrap())
     }
 
+    #[test]
+    fn test_svd() {
+        let v = Array2::from_shape_vec((5, 5),
+                                       vec![0.5, 0.5, 0.5, 0.5, 0.5,
+                                            0.5, 0.5, 0.5, 0.5, 0.5,
+                                            0.5, 0.5, 0.5, 0.5, 0.5,
+                                            0.5, 0.5, 0.5, 0.5, 0.5,
+                                            0.5, 0.5, 0.5, 0.5, 0.5]).unwrap();
+
+        let (u, s, e)
+            = v.svd(true, true).unwrap();
+        println!("U: {:?}", u);
+        println!("S: {:?}", s);
+        println!("E: {:?}", e);
+
+
+    }
 }
