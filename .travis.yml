@@ -1,0 +1,50 @@
+---
+os:
+  - linux
+
+env:
+  - ARCH=x86_64
+
+sudo: required
+language: rust
+rust:
+  - stable
+  - beta
+
+addons:
+  apt:
+    packages:
+      - build-essential
+      - gfortran
+      - libssl-dev
+  homebrew:
+    packages:
+      - gcc@9
+
+install:
+  # Modified from https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/use-conda-with-travis-ci.html
+  - sudo apt-get update
+
+cache: cargo
+
+before_cache: |
+  if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
+    cargo install cargo-tarpaulin
+  fi
+
+script:
+  - if [ "$TRAVIS_OS_NAME" = 'osx' ]; then export CC=gcc-9 FC=gfortran-9 LIBRARY_PATH=/usr/local/opt/gcc/lib/gcc/9; fi
+  - cargo clean
+  - cargo build
+  - cargo test
+
+after_success: |
+  if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
+    # Uncomment the following line for coveralls.io
+    # cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
+
+   Uncomment the following two lines create and upload a report for codecov.io
+   cargo tarpaulin --out Xml
+   CODECOV_TOKEN="33fe3b09-bd4c-42e0-8c25-8f721bc37689"
+   bash <(curl -s https://codecov.io/bash)
+  fi

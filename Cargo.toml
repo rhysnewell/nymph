@@ -11,9 +11,11 @@ readme = "README.md"
 exclude = [
   "tests/*"
 ]
-edition = "2020"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+rayon = ["ndarray/rayon"]
+static = ["ndarray-linalg/static"]
 
 [dependencies]
 ordered-float = "1"
