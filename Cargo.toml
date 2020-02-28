@@ -1,7 +1,16 @@
 [package]
 name = "nymph"
 version = "0.1.0"
-authors = ["Rhys Newell <rhys.newell@uqconnect.edu.au>"]
+authors = ["Rhys Newell <r.newell@uq.edu.au>"]
+license = "GPL-3.0"
+description = "Non-negative matrix factorization in Rust"
+homepage = "https://rhysnewell.github.io/nymph/"
+repository = "https://github.com/rhysnewell/nymph"
+documentation = "https://github.com/rhysnewell/nymph"
+readme = "README.md"
+exclude = [
+  "tests/*"
+]
 edition = "2020"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,7 +18,6 @@ edition = "2020"
 [dependencies]
 ordered-float = "1"
 ndarray = { version = "0.13.0", features = ["rayon"] }
-ndarray-npy = "0.5.*"
 ndarray-linalg = { version = "0.12", features = ["static"] }
 rayon = "1.2.*"
 

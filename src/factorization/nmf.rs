@@ -2,14 +2,15 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::prelude::*;
 use ordered_float::NotNan;
+use approx;
 
-use ndarray::{Array, Array2, Axis, Zip};
+use ndarray::{Array, Array2, Axis, Zip, stack};
 use ndarray::prelude::*;
 use rayon::prelude::*;
-use crate::factorization::{seeding::Seed, nmf_std};
-use crate::factorization::seeding::SeedFunctions;
+use crate::factorization::{seeding::Seed};
+use factorization::seeding::SeedFunctions;
 use std::process;
-use std::f32;
+use std::f64;
 
 
 //use crate::matrix_handling;
@@ -65,37 +66,38 @@ impl Objective {
 
 pub enum Factorization {
     NMF {
-        v: Array2<f32>,
-        v1: Option<Array2<f32>>,
-        h1: Option<Array2<f32>>,
-        w1: Option<Array2<f32>>,
-        h: Array2<f32>,
-        w: Array2<f32>,
+        v: Array2<f64>,
+        v1: Option<Array2<f64>>,
+        h1: Option<Array2<f64>>,
+        w1: Option<Array2<f64>>,
+        h: Array2<f64>,
+        w: Array2<f64>,
         seed: Seed,
-        final_obj: f32,
+        final_obj: f64,
         rank: usize,
         n_run: usize,
         update: Update,
         objective: Objective,
         conn_change: usize,
         max_iter: usize,
-        min_residuals: f32,
-        cons: Array2<f32>,
-        old_cons: Array2<f32>,
+        min_residuals: f64,
+        cons: Array2<f64>,
+        old_cons: Array2<f64>,
     }
 }
 
 impl Factorization {
-    pub fn new_nmf(input: Array2<f32>,
-               r: usize,
-               nrun: usize,
-               updatemethod: &str,
-               objectivemethod: &str,
-               connchange: usize,
-               miter: usize,
-               minresiduals: f32) -> Factorization {
+    pub fn new_nmf(input: Array2<f64>,
+                   r: usize,
+                   nrun: usize,
+                   updatemethod: &str,
+                   objectivemethod: &str,
+                   seedmethod: Seed,
+                   connchange: usize,
+                   miter: usize,
+                   minresiduals: f64) -> Factorization {
         Factorization::NMF {
-            seed: Seed::new_random_vcol(r, &input),
+            seed: seedmethod,
             v: input,
             v1: None,
             h1: None,
@@ -118,65 +120,81 @@ impl Factorization {
 
 pub trait RunFactorization {
     fn initialize(&mut self,
-                  input: Array2<f32>,
+                  input: Array2<f64>,
                   r: usize,
                   nrun: usize,
                   updatemethod: &str,
                   objectivemethod: &str,
+                  seedmethod: Seed,
                   connchange: usize,
                   miter: usize,
-                  minresiduals: f32);
+                  minresiduals: f64);
 
-    fn factorize(&mut self);
+    fn estimate_rank(&mut self);
 
-    fn is_satisfied(p_obj: &f32,
-                    c_obj: &f32,
+    fn factorize(v: &Array2<f64>,
+                 seed: Seed,
+                 final_obj: f64,
+                 rank: usize,
+                 update: Update,
+                 objective: Objective,
+                 conn_change: usize,
+                 max_iter: usize,
+                 min_residuals: f64) -> (Array2<f64>, Array2<f64>);
+
+    fn is_satisfied(p_obj: &f64,
+                    c_obj: &f64,
                     run: &usize,
-                    min_residuals: &f32,
+                    min_residuals: &f64,
                     max_iter: &usize,
                     objective: &Objective) -> bool;
 
-    fn update_wh(v: &Array2<f32>,
-                 w: Array2<f32>,
-                 h: Array2<f32>,
-                 update: &Update) -> (Array2<f32>, Array2<f32>);
+    fn update_wh(v: &Array2<f64>,
+                 w: Array2<f64>,
+                 h: Array2<f64>,
+                 update: &Update) -> (Array2<f64>, Array2<f64>);
 
-    fn objective_update(v: &Array2<f32>,
-                        w: &Array2<f32>,
-                        h: &Array2<f32>,
-                        cons: &Array2<f32>,
-                        old_cons: &Array2<f32>,
-                        objective: &Objective) -> (f32, Option<Array2<f32>>);
+    fn objective_update(v: &Array2<f64>,
+                        w: &Array2<f64>,
+                        h: &Array2<f64>,
+                        cons: &Array2<f64>,
+                        old_cons: &Array2<f64>,
+                        objective: &Objective) -> (f64, Option<Array2<f64>>);
 
-    fn basis(&self) -> &Array2<f32>;
+    fn adjustment(input: &mut Array2<f64>) -> Array2<f64>;
 
-    fn target(&self) -> &Array2<f32>;
+    fn basis(&self) -> &Array2<f64>;
 
-    fn coef(&self) -> &Array2<f32>;
+    fn target(&self) -> &Array2<f64>;
 
-    fn fitted(&self) -> Array2<f32>;
+    fn coef(&self) -> &Array2<f64>;
 
-    fn distance(&self, metric: Objective) -> f32;
+    fn fitted(&self) -> Array2<f64>;
 
-    fn residuals(&self) -> Array2<f32>;
+    fn distance(&self, metric: Objective) -> f64;
 
-    fn predict(&self, what: &str) -> Array2<NotNan<f32>>;
+    fn residuals(&self) -> Array2<f64>;
 
-    fn rss (&self) -> f32;
+    fn predict(&self, what: &str) -> Array2<NotNan<f64>>;
 
-    fn evar(&self) -> f32;
+    fn probabilities(&self, what: &str) -> Array2<f64>;
+
+    fn rss (&self) -> f64;
+
+    fn evar(&self) -> f64;
 }
 
 impl RunFactorization for Factorization {
     fn initialize(&mut self,
-                  input: Array2<f32>,
+                  input: Array2<f64>,
                   r: usize,
                   nrun: usize,
                   updatemethod: &str,
                   objectivemethod: &str,
+                  seedmethod: Seed,
                   connchange: usize,
                   miter: usize,
-                  minresiduals: f32) {
+                  minresiduals: f64) {
         match self {
             Factorization::NMF {
                 ref mut v,
@@ -197,7 +215,7 @@ impl RunFactorization for Factorization {
                 ref mut cons,
                 ref mut old_cons,
             } => {
-                *seed = Seed::new_random(*rank, &input);
+                *seed = seedmethod;
                 *v = input;
                 *v1 = None;
                 *h1 = None;
@@ -218,7 +236,7 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn factorize(&mut self) {
+    fn estimate_rank(&mut self) {
         match self {
             Factorization::NMF {
                 v,
@@ -239,187 +257,231 @@ impl RunFactorization for Factorization {
                 ref mut cons,
                 ref mut old_cons,
             } => {
-                //        Compute matrix factorization.
-                //
-                //        Return fitted factorization model.
+                ///        Compute matrix factorization.
+                ///
+                ///        Return fitted factorization model.
 
-                // Defined all variables first so they can be used inside closures
-                let mut best_obj = Arc::new(Mutex::new(0.));
-                let mut p_obj = std::f32::MAX;
-                let mut c_obj = std::f32::MAX;
-                let mut w_ret = Array2::zeros((1, 1));
-                let mut h_ret = Array2::zeros((1, 1));
-                let mut cons_ret = Array::zeros(
-                    (v.shape()[0], v.shape()[1]));
-                let mut old_cons_ret = Array::zeros(
-                    (v.shape()[0], v.shape()[1]));
-                let mut consecutive_conn = 0.;
+                /// Defined all variables first so they can be used inside closures
+                let mut best_rank = 0;
+                let mut prev = std::f64::MAX;
 
-                for run in (0..*n_run).into_iter() {
-                    let (wsvd, hsvd) = seed.initialize(&v);
-                    w_ret = wsvd;
-                    h_ret = hsvd;
-//                    debug!("Initialized H: {:?}", h_ret);
+                for r in (2..*rank+1).into_iter() {
+                    let (w_ret, h_ret) = Factorization::factorize(v, *seed, *final_obj,
+                                                                  r, *update, Objective::Conn, *conn_change,
+                                                                  50, *min_residuals);
+                    let (c_obj, new_cons) =
+                        Factorization::objective_update(&v,
+                                                        &w_ret,
+                                                        &h_ret,
+                                                        &Array2::zeros((1, 1)),
+                                                        &Array2::zeros((1, 1)),
+                                                        &Objective::Fro);
 
-                    p_obj = std::f32::MAX;
-                    c_obj = std::f32::MAX;
-
-                    let mut iteration = 0;
-                    while Factorization::is_satisfied(&p_obj,
-                                            &c_obj,
-                                            &iteration,
-                                            &min_residuals,
-                                            &max_iter,
-                                            &objective) {
-
-                        // to satisfy borrow checker, connectivity has to be checked here
-                        match objective {
-                            Objective::Conn => {
-
-                                if c_obj >= 1. {
-                                    consecutive_conn *= 0.;
-                                } else {
-                                    consecutive_conn += 1.;
-                                }
-                                if consecutive_conn >= *conn_change as f32 {
-                                    break
-                                }
-                            },
-                            _ => {}
-                        };
-
-                        p_obj = c_obj;
-                        let (mut w_update, mut h_update)
-                            = Factorization::update_wh(&v, w_ret, h_ret, &update);
-
-                            // This code does not work and it seems to function fine without it
-//                        // Adjust small values to prevent numerical underflow
-//                        w_update.par_mapv_inplace(|x| {
-//                            if x > f32::EPSILON {
-//                                x
-//                            } else {
-//                                x + f32::EPSILON
-//                            }
-//                        });
-//
-//                        h_update.par_mapv_inplace(|x| {
-//                            if x > f32::EPSILON {
-//                                x
-//                            } else {
-//                                x + f32::EPSILON
-//                            }
-//                        });
-
-                        w_ret = w_update;
-                        h_ret = h_update;
-
-                        let (new_c_obj, new_cons) =
-                            Factorization::objective_update(&v,
-                                                          &w_ret,
-                                                          &h_ret,
-                                                          &cons_ret,
-                                                          &old_cons_ret,
-                                                            &objective);
-                        c_obj = new_c_obj;
-
-                        match new_cons {
-                            Some(array) => {
-                                old_cons_ret = cons_ret.clone();
-                                cons_ret = array;
-                            },
-                            None => {},
-                        }
-                        debug!("Consecutive Conn: {} c_obj {} p_obj {}", consecutive_conn,
-                                 c_obj, p_obj);
-                        iteration += 1;
-
-                    }
-                    info!("Matrix Factorization complete after {} iterations", iteration);
-                    if c_obj < *best_obj.lock().unwrap() || run == 0 {
-                        let mut best_obj = best_obj.lock().unwrap();
-                        *best_obj = c_obj;
+                    info!("NMF using rank {} objective function value {}", r, c_obj);
+                    if (prev - c_obj) > 1e-2 {
+                        prev = c_obj;
+                        best_rank = r;
+                    } else {
+                        break
                     }
                 };
-                debug!("H: {:?}", h_ret);
-                debug!("W: {:?}", w_ret);
-                *w = w_ret;
-                *h = h_ret;
-                *cons = cons_ret;
-                *old_cons = old_cons_ret;
+                info!("Best NMF rank: {}", best_rank);
+
+                let (w_ret, h_ret) = Factorization::factorize(v, *seed, *final_obj,
+                                                              best_rank, *update, *objective, *conn_change,
+                                                              *max_iter, *min_residuals);
+
+                *w = w_ret.clone();
+                *h = h_ret.clone();
+
             }
         }
     }
 
-    fn is_satisfied(p_obj: &f32,
-                    c_obj: &f32,
+    fn factorize(v: &Array2<f64>,
+                 seed: Seed,
+                 final_obj: f64,
+                 rank: usize,
+                 update: Update,
+                 objective: Objective,
+                 conn_change: usize,
+                 max_iter: usize,
+                 min_residuals: f64) -> (Array2<f64>, Array2<f64>){
+        let mut p_obj = std::f64::MAX;
+        let mut c_obj = std::f64::MAX;
+        let mut cons_ret = Array::zeros(
+            (v.shape()[0], v.shape()[1]));
+        let mut old_cons_ret = Array::zeros(
+            (v.shape()[0], v.shape()[1]));
+        let mut consecutive_conn = 0.;
+
+        let (mut w_ret, mut h_ret) = seed.initialize(&v, &rank);
+
+
+        let mut iteration = 0;
+
+        while Factorization::is_satisfied(&p_obj,
+                                          &c_obj,
+                                          &iteration,
+                                          &min_residuals,
+                                          &max_iter,
+                                          &objective) {
+
+            // to satisfy borrow checker, connectivity has to be checked here
+            match objective {
+                Objective::Conn => {
+
+                    if c_obj >= 1. {
+                        consecutive_conn *= 0.;
+                    } else {
+                        consecutive_conn += 1.;
+                    }
+                    if consecutive_conn >= conn_change as f64 {
+                        break
+                    }
+                },
+                _ => {}
+            };
+
+            p_obj = c_obj;
+            let (mut w_update, mut h_update)
+                = Factorization::update_wh(&v,  w_ret, h_ret, &update);
+
+            // Adjust small values to prevent numerical underflow
+            w_ret = Factorization::adjustment(&mut w_update);
+            h_ret = Factorization::adjustment(&mut h_update);
+
+            let (new_c_obj, new_cons) =
+                Factorization::objective_update(&v,
+                                                &w_ret,
+                                                &h_ret,
+                                                &cons_ret,
+                                                &old_cons_ret,
+                                                &objective);
+            c_obj = new_c_obj;
+
+            match new_cons {
+                Some(array) => {
+                    old_cons_ret = cons_ret.clone();
+                    cons_ret = array;
+                },
+                None => {},
+            }
+            debug!("Consecutive Conn: {} c_obj {} p_obj {}", consecutive_conn,
+                   c_obj, p_obj);
+            iteration += 1;
+        }
+        return (w_ret, h_ret)
+    }
+
+    fn adjustment(input: &mut Array2<f64>) -> Array2<f64> {
+        input.par_mapv_inplace(|x| {
+            if x > f64::EPSILON {
+                x
+            } else if x.is_nan() {
+                f64::EPSILON
+            } else {
+                f64::EPSILON
+            }
+        });
+
+        return input.to_owned()
+    }
+
+    fn is_satisfied(p_obj: &f64,
+                    c_obj: &f64,
                     run: &usize,
-                    min_residuals: &f32,
+                    min_residuals: &f64,
                     max_iter: &usize,
                     objective: &Objective) -> bool {
-            if *max_iter <= *run {
-                false
-            } else if match objective {
-                Objective::Conn => true,
-                _ => false,
-            }{
-                // connectivity test outside this function
-                true
-            } else if run > &0 && (p_obj - c_obj) < *min_residuals {
-                false
-            } else if run > &0 && c_obj > p_obj {
-                false
-            } else {
-                true
-            }
+        if *max_iter <= *run {
+            false
+        } else if match objective {
+            Objective::Conn => true,
+            _ => false,
+        }{
+            /// connectivity test outside this function
+            true
+        } else if run > &0 && (p_obj - c_obj) < *min_residuals {
+            false
+        } else if run > &0 && c_obj > p_obj {
+            false
+        } else {
+            true
         }
+    }
 
-    fn update_wh(v: &Array2<f32>,
-                 w: Array2<f32>,
-                 h: Array2<f32>,
-                 update: &Update) -> (Array2<f32>, Array2<f32>){
+    fn update_wh(v: &Array2<f64>,
+                 w: Array2<f64>,
+                 h: Array2<f64>,
+                 update: &Update) -> (Array2<f64>, Array2<f64>){
         match update {
             Update::Euclidean => {
-                // Update basis and mixture matrix based on
-                // Euclidean distance multiplicative update rules.
-                // Build individual parts of functions
-                // H is updated first, and then used to update W
-                // Function 1
-                let w_dot_h = w.dot(&h);
+                /// Update basis and mixture matrix based on
+                /// Euclidean distance multiplicative update rules.
+                /// Build individual parts of functions
+                /// H is updated first, and then used to update W
+                /// Function 1
                 let w_t = w.t();
-                let w_t_dot_w_dot_h: Array2<f32> = w_t.dot(&w_dot_h);
-                let w_t_dot_v: Array2<f32> = w_t.dot(v);
-                let upper_div_lower_a = w_t_dot_v / w_t_dot_w_dot_h ;
-                let h = h * &(upper_div_lower_a);
+                let mut lower_1 = w_t.dot(v);
+                let lower_2 = w_t.dot(&w.dot(&h));
+                let mut lower_1 = w_t.dot(v);
+
+                Zip::from(&mut lower_1)
+                    .and(&lower_2)
+                    .par_apply(|a, b| {
+                        *a = &*a / b
+                    });
+                lower_1 = Factorization::adjustment(&mut lower_1);
+
+                let mut h = h;
+                Zip::from(&mut h)
+                    .and(&lower_1)
+                    .par_apply(|a, b| {
+                        *a = &*a*b
+                    });
 
                 // Function 2
-                let h_dot_h_t = h.dot(&h.t());
+                let mut h_dot_h_t = h.dot(&h.t());
                 let w_dot_h_dot_h_t = w.dot(&h_dot_h_t);
-                let v_dot_h_t = v.dot(&h.t());
-                let upper_div_lower_b = v_dot_h_t / w_dot_h_dot_h_t;
-                let w = w * upper_div_lower_b;
+                let mut v_dot_h_t = v.dot(&h.t());
+                Zip::from(&mut v_dot_h_t)
+                    .and(&w_dot_h_dot_h_t)
+                    .par_apply(|a, b| {
+                        *a = &*a / b
+                    });
+
+                v_dot_h_t = Factorization::adjustment(&mut v_dot_h_t);
+                let mut w = w;
+                Zip::from(&mut w)
+                    .and(&v_dot_h_t)
+                    .par_apply(|a, b| {
+                        *a = &*a*b
+                    });
 
                 return (w, h)
             },
             Update::Divergence => {
-                // Update basis and mixture matrix based on
-                // Divergence distance multiplicative update rules.
-                let h1: Array2<f32> = Array::from_elem(
+                /// Update basis and mixture matrix based on
+                /// Divergence distance multiplicative update rules.
+                let h1: Array2<f64> = Array::from_elem(
                     (1, v.shape()[1]), w.sum_axis(Axis(0))[0]);
 
-                let inner_dot: Array2<f32> = w.dot(&h);
-                let inner_elop: Array2<f32> = v.clone() / inner_dot;
-                let h_inner: Array2<f32> = w.t()
+                let inner_dot: Array2<f64> = w.dot(&h);
+                let inner_elop: Array2<f64> = v.clone() / inner_dot;
+                let h_inner: Array2<f64> = w.t()
                     .dot(&(inner_elop));
 
-                let w1: Array2<f32> = Array::from_elem(
+                let w1: Array2<f64> = Array::from_elem(
                     (v.shape()[0], 1), h.sum_axis(Axis(1))[0]);
 
-                let mut inner_dot: Array2<f32> = w.dot(&h);
-                let inner_elop: Array2<f32> = v.clone() / inner_dot;
-                let w_inner: Array2<f32> = inner_elop.dot(&h.t());
+                let inner_dot: Array2<f64> = w.dot(&h);
+                let inner_elop: Array2<f64> = v.clone() / inner_dot;
+                let w_inner: Array2<f64> = inner_elop.dot(&h.t());
 
                 let h = h * &(h_inner / h1);
                 let w = w * &(w_inner / w1);
+
                 return (w, h)
             },
             _ => {
@@ -428,56 +490,63 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn objective_update(v: &Array2<f32>,
-                        w: &Array2<f32>,
-                        h: &Array2<f32>,
-                        cons: &Array2<f32>,
-                        old_cons: &Array2<f32>,
-                        objective: &Objective) -> (f32, Option<Array2<f32>>) {
+    fn objective_update(v: &Array2<f64>,
+                        w: &Array2<f64>,
+                        h: &Array2<f64>,
+                        cons: &Array2<f64>,
+                        old_cons: &Array2<f64>,
+                        objective: &Objective) -> (f64, Option<Array2<f64>>) {
         match objective {
             Objective::Fro => {
-                // Compute squared Frobenius norm of a target matrix and its NMF estimate.
-                let r = v.clone() - w.dot(h);
+                /// Compute squared Frobenius norm of a target matrix and its NMF estimate.
+                let w_dot_h = w.dot(h);
+                let mut r = Array2::zeros(
+                    (v.shape()[0], v.shape()[1]));
+                Zip::from(&mut r)
+                    .and(v)
+                    .and(&w_dot_h)
+                    .par_apply(|a, b, c|{
+                        *a = b - c
+                    });
+
                 return ((r.clone() * r).sum(), None)
             },
             Objective::Div => {
-                // Compute divergence of target matrix from its NMF estimate.
+                /// Compute divergence of target matrix from its NMF estimate.
                 let va = w.dot(h);
-                let inner_elop = (v.clone() / va.clone()).mapv(|x|{x.ln()});
+                let mut inner_elop = v.clone() / va.clone();
+                inner_elop.par_mapv_inplace(|x|{x.ln()});
 
                 return (((v.clone() * inner_elop) - v.clone() + va).sum(), None)
             },
             Objective::Conn => {
-                // Compute connectivity matrix and compare it to connectivity matrix
-                // from previous iteration.
-                // Return logical value denoting whether connectivity matrix has changed
-                // from previous iteration.
-                let mut idx = Arc::new(Mutex::new(Array1::<usize>::zeros(
-                    (h.shape()[1]))));
+                /// Compute connectivity matrix and compare it to connectivity matrix
+                /// from previous iteration.
+                /// Return logical value denoting whether connectivity matrix has changed
+                /// from previous iteration.
+                let idx = Arc::new(Mutex::new(Array1::<usize>::zeros(
+                    h.shape()[1])));
 
                 h.axis_iter(Axis(1)).into_par_iter().enumerate()
                     .for_each(|(col_idx, col)|{
-                        let notnan_row: Vec<NotNan<f32>> = col.into_par_iter().cloned()
+                        let notnan_row: Vec<NotNan<f64>> = col.into_par_iter().cloned()
                             .map(NotNan::new)
                             .filter_map(Result::ok)
                             .collect();
-
-                        let max = notnan_row.par_iter().max().unwrap();
+                        let max = notnan_row.par_iter().max().expect("No maximum found");
                         let argmax = notnan_row.par_iter().position(|element| element == max).unwrap();
                         let mut idx = idx.lock().unwrap();
                         idx[col_idx] = argmax;
                     });
-                let mut idx = idx.lock().unwrap();
+                let idx = idx.lock().unwrap();
 //                debug!("IDX: {:?}", idx);
 
                 let mat1 = idx.broadcast((v.shape()[1], v.shape()[1])).unwrap();
                 let mat2 = mat1.t();
 
 
-                let mut new_cons: Array2<f32> = Array::zeros(
+                let mut new_cons: Array2<f64> = Array::zeros(
                     (v.shape()[0], v.shape()[1]));
-//                let mut mat1 = mat1.lock().unwrap();
-//                let mut mat2 = mat2.lock().unwrap();
 
                 Zip::from(&mut new_cons)
                     .and(mat1)
@@ -500,7 +569,6 @@ impl RunFactorization for Factorization {
                             *connectivity_change += 1.;
                         }
                     });
-//                debug!("Eqaulity: {}", &new_cons==cons);
                 let connectivity_change = connectivity_change.lock().unwrap().clone();
                 return (connectivity_change, Some(new_cons))
             },
@@ -510,7 +578,7 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn basis(&self) -> &Array2<f32> {
+    fn basis(&self) -> &Array2<f64> {
         match self {
             Factorization::NMF {
                 w,
@@ -521,7 +589,7 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn target(&self) -> &Array2<f32> {
+    fn target(&self) -> &Array2<f64> {
         match self {
             Factorization::NMF {
                 v,
@@ -532,7 +600,7 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn coef(&self) -> &Array2<f32> {
+    fn coef(&self) -> &Array2<f64> {
         match self {
             Factorization::NMF {
                 h,
@@ -543,7 +611,7 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn fitted(&self) -> Array2<f32> {
+    fn fitted(&self) -> Array2<f64> {
         match self {
             Factorization::NMF {
                 w,
@@ -555,7 +623,7 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn distance(&self, metric: Objective) -> f32 {
+    fn distance(&self, metric: Objective) -> f64 {
         match self {
             Factorization::NMF {
                 v,
@@ -565,14 +633,14 @@ impl RunFactorization for Factorization {
             } => {
                 match metric {
                     Objective::Fro => {
-                        // Compute squared Frobenius norm of a target matrix and its NMF estimate.
+                        /// Compute squared Frobenius norm of a target matrix and its NMF estimate.
                         let r = v.clone() - w.dot(h);
                         return (r.clone() * r).sum()
                     },
                     Objective::Div => {
-                        // Compute divergence of target matrix from its NMF estimate.
+                        /// Compute divergence of target matrix from its NMF estimate.
                         let va = w.dot(h);
-                        let mut inner_elop = (v.clone() / va.clone());
+                        let mut inner_elop = v.clone() / va.clone();
                         inner_elop.par_mapv_inplace(|x| { x.ln() });
 
                         return ((v.clone() * inner_elop) - v.clone() + va).sum()
@@ -585,7 +653,7 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn residuals(&self) -> Array2<f32> {
+    fn residuals(&self) -> Array2<f64> {
         match self {
             Factorization::NMF {
                 v,
@@ -599,7 +667,7 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn predict(&self, what: &str) -> Array2<NotNan<f32>> {
+    fn predict(&self, what: &str) -> Array2<NotNan<f64>> {
         // Compute the dominant basis components. The dominant basis component is
         // computed as the row index for which the entry is the maximum within the column.
         match self {
@@ -629,8 +697,8 @@ impl RunFactorization for Factorization {
 
                 x.axis_iter(Axis(1)).enumerate()
                     .for_each(|(col_idx, row)|{
-                        let notnan_row: Vec<NotNan<f32>> = row
-                            .iter()
+                        let notnan_row: Vec<NotNan<f64>> = row
+                            .into_par_iter()
                             .cloned()
                             .map(NotNan::new)
                             .filter_map(Result::ok)
@@ -639,12 +707,12 @@ impl RunFactorization for Factorization {
                         let max = notnan_row.par_iter().max().unwrap();
                         let argmax = notnan_row.par_iter().position(|element| element == max).unwrap();
                         idx[[col_idx, 0]] = *max;
-                        idx[[col_idx, 1]] = NotNan::from(argmax as f32);
+                        idx[[col_idx, 1]] = NotNan::from(argmax as f64);
                     });
 
                 let sums = x.sum_axis(Axis(0));
 
-                let mut prob = Array::zeros((x.shape()[1]));
+                let mut prob = Array::zeros(x.shape()[1]);
 
                 Zip::from(&mut prob)
                     .and(&sums)
@@ -659,7 +727,48 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn rss(&self) -> f32 {
+    fn probabilities(&self, what: &str) -> Array2<f64> {
+        match self {
+            Factorization::NMF {
+                v,
+                w,
+                h,
+                ..
+            } => {
+                let mut x = Array::zeros((2, 2));
+                match what {
+                    "samples" => {
+                        x = h.to_owned()
+                    },
+                    "features" => {
+                        x = w.to_owned()
+                    },
+                    _ => {
+                        error!("Invalid option for prediction parameter {}", what);
+                        process::exit(1)
+                    }
+                };
+
+                let probabilities = Arc::new(Mutex::new(Array::zeros(
+                    (x.shape()[1], x.shape()[0]))));
+
+
+                x.axis_iter(Axis(1)).into_par_iter().enumerate()
+                    .for_each(|(col_idx, row)|{
+                        let sum: f64 = row
+                            .into_par_iter()
+                            .sum();
+                        let probs = row.to_owned() / sum;
+                        let mut probabilities = probabilities.lock().unwrap();
+                        probabilities.slice_mut(s![col_idx, ..]).assign(&probs);
+                    });
+                let probabilities = probabilities.lock().unwrap().clone();
+                return probabilities
+            }
+        }
+    }
+
+    fn rss(&self) -> f64 {
         match self {
             Factorization::NMF {
                 ..
@@ -671,7 +780,7 @@ impl RunFactorization for Factorization {
         }
     }
 
-    fn evar(&self) -> f32 {
+    fn evar(&self) -> f64 {
         match self {
             Factorization::NMF {
                 v,
@@ -690,38 +799,84 @@ impl RunFactorization for Factorization {
 mod tests {
     use super::*;
     use ndarray::{Array2};
+    use ndarray_linalg::{norm::*};
+    use std::f64;
 
     #[test]
-    fn test_update() {
+    fn test_update_euclidean() {
         let v = Array2::from_shape_vec((5, 5),
-                                        vec![0.5, 0.5, 0.5, 0.5, 0.5,
-                                                0.5, 0.5, 0.5, 0.5, 0.5,
-                                                0.5, 0.5, 0.5, 0.5, 0.5,
-                                                0.5, 0.5, 0.5, 0.5, 0.5,
-                                                0.5, 0.5, 0.5, 0.5, 0.5]).unwrap();
-        let w = Array2::from_shape_vec((5, 2),
-                                       vec![0.75, 0.85,
-                                               0.65, 0.95,
-                                               0.55, 0.05,
-                                               0.45, 0.15,
-                                               0.35, 0.25]).unwrap();
-        let h = Array2::from_shape_vec((2, 5),
-                                       vec![0.15, 0.25, 0.35, 0.45, 0.55,
-                                            0.05, 0.95, 0.85, 0.75, 0.65]).unwrap();
+                                       vec![0.0, 0.5, 1.0, 1.5, 2.0,
+                                            0.5, 0.0, 0.5, 0.5, 1.5,
+                                            1.0, 0.5, 0.0, 0.5, 1.0,
+                                            1.5, 0.5, 0.5, 0.0, 0.5,
+                                            2.0, 1.5, 1.0, 0.5, 0.0]).unwrap();
+        assert_eq!(v.norm(), 4.847679857416329);
+
+        let placeholder = Array2::zeros((1, 1));
 
 
-        let (w_ret, h_ret) = Factorization::update_wh(&v,
-                                                      w,
-                                                      h,
-                                                      &Update::Euclidean);
+        let mut w = Array2::from_shape_vec((5, 2),
+                                           vec![0.75, 0.85,
+                                                0.65, 0.95,
+                                                0.55, 0.05,
+                                                0.45, 0.15,
+                                                0.35, 0.25]).unwrap();
+        let mut h = Array2::from_shape_vec((2, 5),
+                                           vec![0.15, 0.25, 0.35, 0.45, 0.55,
+                                                0.05, 0.95, 0.85, 0.75, 0.65]).unwrap();
 
-        assert_eq!(w_ret, Array2::from_shape_vec((5, 2), vec![0.59104721, 0.68220986,
-                                                                        0.51940084 , 0.74870694,
-                                                                        1.051906, 0.123250104,
-                                                                        0.8904397, 0.34999108,
-                                                                        0.71739516, 0.55372749]).unwrap());
+        let w_t = w.t().to_owned();
 
-        assert_eq!(h_ret, Array2::from_shape_vec((2, 5), vec![0.65737057, 0.19434629, 0.26941917, 0.34303534, 0.41523683,
-                                                 0.18672198, 0.53807426, 0.48819402  , 0.43689322 , 0.38411031]).unwrap());
+        assert_eq!(w_t.dot(&v), Array2::from_shape_vec((2, 5),
+                                                       vec![2.25, 1.4 , 1.65, 1.9000000000000001 , 3.2500000000000004,
+                                                            1.25, 0.9 , 1.65, 1.9 , 3.25]).unwrap());
+//        assert_eq!((h.clone() * w_t.dot(&v) / w_t.dot(&w.dot(&h))), Array2::from_shape_vec((2, 5),
+//                                                                                    vec![1.07569721, 0.19787986, 0.32330301, 0.47401247, 0.98146877,
+//                                                                                         0.20746888, 0.43045941, 0.71601787, 0.73786408, 1.109652  ]).unwrap());
+        let (p_obj, _unused) = Factorization::objective_update(&v,
+                                                               &w,
+                                                               &h,
+                                                               &placeholder,
+                                                               &placeholder,
+                                                               &Objective::Fro);
+
+
+        let (mut w_ret, mut h_ret) = Factorization::update_wh(&v,
+                                                              w,
+                                                              h,
+                                                              &Update::Euclidean);
+
+        assert_eq!(w_ret, Array2::from_shape_vec((5, 2), vec![0.6544092289292585, 0.9987459184909812,
+                                                              0.4476568628600942, 0.6446373448603425,
+                                                              0.8967482904791207, 0.07829888125304496,
+                                                              0.7511493120741213, 0.1702699613712722,
+                                                              0.7709963753667608, 0.4058245858289912]).unwrap());
+
+        assert_eq!(h_ret, Array2::from_shape_vec((2, 5), vec![1.0756972111553786, 0.19787985865724383, 0.3233030090972708, 0.4740124740124741, 0.9814687714481813,
+                                                              0.20746887966804983, 0.43045940843297675, 0.7160178685386088, 0.7378640776699029, 1.1096520026263952]).unwrap());
+        let (c_obj, _unused) = Factorization::objective_update(&v,
+                                                               &w_ret,
+                                                               &h_ret,
+                                                               &placeholder,
+                                                               &placeholder,
+                                                               &Objective::Fro);
+        let (mut w_ret, mut h_ret) = Factorization::update_wh(&v,
+                                                              w_ret,
+                                                              h_ret,
+                                                              &Update::Euclidean);
+
+        assert_eq!(w_ret, Array2::from_shape_vec((5, 2), vec![0.48035360626494766, 1.1090065732365098,
+                                                              0.399928424846599, 0.6137075300859243,
+                                                              0.8457693737152376, 0.07891922698649473,
+                                                              0.851590657857285, 0.1311655618922494,
+                                                              1.0057552021993001, 0.36825246357154434]).unwrap());
+
+        assert_eq!(h_ret, Array2::from_shape_vec((2, 5), vec![1.3195125019368716, 0.40114707497220353, 0.3485167493278629, 0.4201726819390238, 0.7681395421952684,
+                                                              0.16044803005161773, 0.5403153136083633, 0.7985953508543852, 0.8099673349643689, 1.0792614312672162]).unwrap());
+        assert_eq!(p_obj, 13.150625);
+        assert_eq!(c_obj, 6.8164628097490425);
+
+//        let mut x = 0.;
+//        assert_eq!(f64::EPSILON, x)
     }
 }
