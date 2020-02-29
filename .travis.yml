@@ -29,6 +29,8 @@ before_cache:
 
 script:
   - if [ "$TRAVIS_OS_NAME" = 'osx' ]; then export CC=gcc-9 FC=gfortran-9 LIBRARY_PATH=/usr/local/opt/gcc/lib/gcc/9; fi
+  - rm -r ~/.cargo/registry/src/github*/openblas-src-0.7.0/
+  - rm -r ~/.cargo/registry/cache/github*/openblas-src-0.7.0.crate/
   - cargo clean
   - cargo build
   - cargo test -vv
