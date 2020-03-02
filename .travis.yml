@@ -13,6 +13,7 @@ addons:
       - libopenblas-dev
       - libssl-dev
       - liblapack-dev
+      - libblas-dev
       - gfortran
 
 cache: cargo
@@ -32,7 +33,7 @@ after_success: |
     # Uncomment the following line for coveralls.io
     # cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
 
-   Uncomment the following two lines create and upload a report for codecov.io
+    # Uncomment the following two lines create and upload a report for codecov.io
    cargo tarpaulin --out Xml
    CODECOV_TOKEN="33fe3b09-bd4c-42e0-8c25-8f721bc37689"
    bash <(curl -s https://codecov.io/bash)
