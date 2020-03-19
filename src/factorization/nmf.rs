@@ -264,7 +264,7 @@ impl RunFactorization for Factorization {
                 let mut best_rank = 0;
                 let mut prev = std::f64::MAX;
 
-                for r in (2..*rank+1).into_iter() {
+                for r in (2..*v.ncols()+1).into_iter() {
                     let (w_ret, h_ret) = Factorization::factorize(v, *seed, *final_obj,
                                                                   r, *update, Objective::Conn, *conn_change,
                                                                   50, *min_residuals);
